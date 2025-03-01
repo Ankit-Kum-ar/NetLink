@@ -1,3 +1,5 @@
+const { sendCommentNotificationEmail } = require("../emails/emailHandlers");
+const Notification = require("../models/notification.model");
 const Post = require("../models/post.model");
 const cloudinary = require("cloudinary").v2;
 
@@ -90,8 +92,130 @@ const deletePost = async (req, res) => {
     }
 }
 
+const getPostById = async (req, res) => {
+    try {
+        // Get the post ID from the URL parameter.
+        const postId = req.params.id;
+
+        // Find the post by ID and populate the author and comments.user fields.
+        const post = await Post.findById(postId)
+            .populate('author', 'name username profilePicture headline')
+            .populate('comments.user', 'name profilePicture username headline');
+
+        // Check if the post exists.
+        if (!post) {
+            return res.status(404).json({ message: 'Post not found' });
+        }
+
+        res.status(200).json({
+            status: 'success',
+            data: post
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
+const createComment = async (req, res) => {
+    try {
+        // Get the content of the comment and the post ID from the request body and URL parameter.
+        const { content } = req.body;
+        const postId = req.params.id;
+
+        // Find the post by ID and update the comments array with the new comment.
+        const post = await Post.findByIdAndUpdate(postId, {
+            $push: {
+                comments: {
+                    content,
+                    user: req.user._id
+                }
+            }
+        }, { new: true })
+            .populate('author', 'name username profilePicture headline email');
+
+        // Check if the post exists.
+        if (!post) {
+            return res.status(404).json({ message: 'Post not found' });
+        }
+
+        // Create a notification if comment user is not the post author.
+        if (req.user._id.toString() !== post.author.toString()) {
+            const newNotification = new Notification({
+                recipient: post.author,
+                type: 'comment',
+                relatedUser: req.user._id,
+                relatedPost: postId
+            });
+            await newNotification.save(); // Save the notification to the database.
+            
+            // Send a email notification to the post author.
+            try {
+                const postUrl = `${process.env.CLIENT_URL}/posts/${postId}`;
+                await sendCommentNotificationEmail(
+                    post.author.email,
+                    post.author.name,
+                    req.user.name,
+                    postUrl,
+                    content
+                )
+            } catch (error) {
+                console.log(error);
+            }
+        }
+
+        res.status(200).json({
+            status: 'success',
+            data: post
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
+const likePost = async (req, res) => {
+    try {
+        // Get the post ID from the URL parameter.
+        const postId = req.params.id;
+
+        // Find the post by ID.
+        const post = await Post.findById(postId);
+
+        // Check if the post exists.
+        if (!post) {
+            return res.status(404).json({ message: 'Post not found' });
+        }
+
+        if (post.likes.includes(req.user._id)) { // If the user has already liked the post, unlike it.
+            post.likes = post.likes.filter(like => like.toString() !== req.user._id.toString());
+        } else {
+            post.likes.push(req.user._id); // Otherwise, like the post.
+
+            // Create a notification if the post author is not the user.
+            if (req.user._id.toString() !== post.author.toString()) {
+                const newNotification = new Notification({
+                    recipient: post.author,
+                    type: 'like',
+                    relatedUser: req.user._id,
+                    relatedPost: postId
+                });
+                await newNotification.save(); // Save the notification to the database.
+            }
+        }
+
+        await post.save(); // Save the updated post to the database.
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+}
+
 module.exports = {
     getFeedPosts,
     createPost,
-    deletePost
+    deletePost,
+    getPostById,
+    createComment,
+    likePost
 };

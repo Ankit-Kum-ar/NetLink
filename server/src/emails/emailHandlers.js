@@ -1,5 +1,5 @@
 const { mailtrapClient, sender } = require("../config/mailtrap");
-const { createWelcomeEmailTemplate } = require("./emailTemplates");
+const { createWelcomeEmailTemplate, createCommentNotificationEmailTemplate } = require("./emailTemplates");
 
 const sendWelcomeEmail = async (email, name, profileUrl) => {
     const recipient = [{ email }];
@@ -18,6 +18,35 @@ const sendWelcomeEmail = async (email, name, profileUrl) => {
     }
 }
 
+const sendCommentNotificationEmail = async (
+    recipientEmail,
+    recipientName,
+    commenterName,
+    postUrl,
+    commentContent
+) => {
+    const recipient = [{ email: recipientEmail }];
+
+    try {
+        const response = await mailtrapClient.send({
+            from: sender,
+            to: recipient,
+            subject: `${commenterName} commented on your post`,
+            html: createCommentNotificationEmailTemplate(
+                recipientName,
+                commenterName,
+                postUrl,
+                commentContent
+            ),
+            category: "Comment Notification Email",
+        });
+        console.log('Email sent:', response);
+    } catch (error) {
+        console.error('Error sending email:', error.message);
+    }
+}
+
 module.exports = {
-    sendWelcomeEmail
+    sendWelcomeEmail,
+    sendCommentNotificationEmail
 }
